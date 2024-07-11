@@ -1,11 +1,10 @@
 use actix_web::{body::BoxBody, http::header::ContentType, HttpRequest, HttpResponse, Responder};
 use serde_derive::Deserialize;
 use serde_derive::Serialize;
-use serde_json::Value;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RpcRequest {
+pub struct TransferRpcRequest {
     pub jsonrpc: String,
     pub id: i64,
     pub method: String,
@@ -51,23 +50,7 @@ pub struct ImmOrOwnedMoveObject {
     pub digest: String,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReferenceGasPriceRequest {
-    pub jsonrpc: String,
-    pub id: i64,
-    pub method: String,
-    pub params: Vec<Value>,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReferenceGasPriceResponse {
-    pub jsonrpc: String,
-    pub result: String,
-    pub id: i64,
-}
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct TxDigestRequest {
     pub recipient: String,
     pub amount: String,

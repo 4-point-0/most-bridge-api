@@ -1,5 +1,5 @@
 use actix_web::web::ServiceConfig;
-use actix_web::{get, post, web, Error as ActixError};
+use actix_web::{get, post, web};
 use base64::{self, engine::general_purpose::STANDARD, Engine};
 use constants::{
     GAS_BUDGET, GAS_OBJECT_ID, MAINNET_URL, MODE, SIGNER, SUI_MODULE_ID, SUI_PACKAGE_ID,
@@ -13,9 +13,9 @@ use fastcrypto::{
 use models::{
     ExecuteTxBlockRequest, ExecuteTxBlockResponse, MoveModule, QueryEventsRequest,
     QueryEventsRpcRequest, QueryParamClassOne, QueryParamClassTwo, QueryParamElement,
-    QueryRpcResponse, Reply,
+    QueryRpcResponse, Reply, TransferRpcRequest,
 };
-use models::{PaySuiResponse, RpcRequest, TxDigestRequest};
+use models::{PaySuiResponse, TxDigestRequest};
 use shared_crypto::intent::{Intent, IntentMessage};
 use shuttle_actix_web::ShuttleActixWeb;
 use sui_types::transaction::TransactionData;
@@ -23,7 +23,9 @@ mod constants;
 mod models;
 
 #[post("/tx-digest")]
-async fn get_tx_digest(dto: web::Json<TxDigestRequest>) -> Result<Reply, ActixError> {
+async fn get_tx_digest(
+    dto: web::Json<TxDigestRequest>,
+) -> Result<Reply, Box<dyn std::error::Error>> {
     match transfer_sui(dto.clone()).await {
         Ok(tx_bytes) => {
             let decoded = Engine::decode(&STANDARD, tx_bytes.clone()).unwrap();
@@ -53,35 +55,31 @@ async fn get_tx_digest(dto: web::Json<TxDigestRequest>) -> Result<Reply, ActixEr
 #[post("/execute-tx-block")]
 async fn execute_tx_block(
     dto: web::Json<ExecuteTxBlockRequest>,
-) -> Result<ExecuteTxBlockResponse, ActixError> {
-    let ExecuteTxBlockRequest {
-        signature,
-        tx_bytes,
-    } = dto.clone();
-    let model: RpcRequest = RpcRequest {
-        jsonrpc: "2.0".to_string(),
-        id: 1,
-        method: "sui_executeTransactionBlock".to_string(),
-        params: vec![signature, tx_bytes],
-    };
+) -> Result<ExecuteTxBlockResponse, Box<dyn std::error::Error>> {
+    let request_json = format!(
+        "{{\"jsonrpc\": \"2.0\",\"id\": 1,\"method\": \"sui_executeTransactionBlock\",\"params\": [\"{}\",[\"{}\"],null,null]}}",
+        dto.tx_bytes, dto.signature
+    );
 
-    match reqwest::Client::new()
+    let client = reqwest::Client::new();
+
+    // Send the POST request with the JSON body
+    let response = client
         .post(match MODE {
             "dev" => TESTNET_URL.to_string(),
             _ => MAINNET_URL.to_string(),
         })
-        .json(&model)
+        .header("Content-Type", "application/json")
+        .body(request_json)
         .send()
-        .await
-    {
-        Ok(response) => {
-            match response.json::<ExecuteTxBlockResponse>().await {
-                Ok(resp) => return Ok(resp),
-                Err(err) => panic!("Failed to execute tx block: {}", err.to_string()),
-            };
-        }
-        Err(err) => panic!("Failed to execute tx block: {}", err.to_string()),
-    };
+        .await?;
+
+    let str_body = String::from_utf8(response.text().await?.into_bytes())
+        .expect("Transformed response is not UTF-8 encoded.");
+    log::info!("Response: {:?}", str_body);
+    let res: ExecuteTxBlockResponse = serde_json::from_str(&str_body)?;
+
+    return Ok(res);
 }
 
 #[post("/query-events")]
@@ -119,7 +117,7 @@ async fn sui_events(
         jsonrpc: "2.0".to_string(),
         id: 1,
         method: "suix_queryEvents".to_string(),
-        params: params,
+        params,
     };
 
     let response = reqwest::Client::new()
@@ -144,7 +142,7 @@ async fn ping() -> String {
 }
 
 async fn transfer_sui(dto: TxDigestRequest) -> Result<std::string::String, reqwest::Error> {
-    let model: RpcRequest = RpcRequest {
+    let model: TransferRpcRequest = TransferRpcRequest {
         jsonrpc: "2.0".to_string(),
         id: 1,
         method: "unsafe_transferSui".to_string(),
